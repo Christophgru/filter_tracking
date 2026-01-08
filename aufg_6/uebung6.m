@@ -107,52 +107,118 @@ while (1)  % simulation loop
 
   % use process modell: CV/CW (VC/VO)
   %predict cv turn
-  x = x_est(1);  y = x_est(2);  v = x_est(3);  psi = x_est(4);  w = x_est(5);
+ % ---------- UKF parameters (1-sigma points) ----------
+  n = 5;
+  lambda = 1 - n;          % so (n+lambda)=1  -> 1-sigma spread
+  gamma  = sqrt(n + lambda);
 
-    % nonlinear state prediction
-    x_pred = [ x + v*cos(psi)*T;
-               y + v*sin(psi)*T;
-               v;
-               normalizeAngle(psi + w*T);
-               w ];
-    
-    % Jacobian F = df/dx
-    F = [ 1, 0, cos(psi)*T, -v*sin(psi)*T, 0;
-          0, 1, sin(psi)*T,  v*cos(psi)*T, 0;
-          0, 0, 1,          0,            0;
-          0, 0, 0,          1,            T;
-          0, 0, 0,          0,            1 ];
+  % weights
+  Wm = zeros(2*n+1,1);
+  Wc = zeros(2*n+1,1);
+  Wm(1) = lambda/(n+lambda);
+  Wc(1) = Wm(1);           % you can add (1-alpha^2+beta) if you want
+  for k=2:2*n+1
+      Wm(k) = 1/(2*(n+lambda));
+      Wc(k) = Wm(k);
+  end
 
+  % ---------- 1) sigma points from (x_est, P_est) ----------
+  % Use Cholesky of P_est (ensure SPD; add small jitter if needed)
+  Sx = chol(P_est, 'lower');   % if this fails, try chol(P_est + 1e-9*eye(n))
 
-    P_pred = F * P_est * F' + Q;
+  Xsig = zeros(n, 2*n+1);
+  Xsig(:,1) = x_est;
+  for i=1:n
+      Xsig(:,1+i)   = x_est + gamma * Sx(:,i);
+      Xsig(:,1+n+i) = x_est - gamma * Sx(:,i);
+  end
 
-    % innovation
-z_pred = H * x_pred;
-nu = z - z_pred;
-nu(3) = normalizeAngle(nu(3));   % wrap angle innovation
+  % wrap sigma point angles (psi index 4)
+  for k=1:2*n+1
+      Xsig(4,k) = normalizeAngle(Xsig(4,k));
+  end
 
-S = H * P_pred * H' + R;
-K = P_pred * H' / S;
+  % ---------- 2) propagate through motion model ----------
+  Xsig_pred = zeros(n,2*n+1);
+  for k=1:2*n+1
+      Xsig_pred(:,k) = f_cvturn(Xsig(:,k), T);
+  end
 
-% update
-I = eye(5);
-x_est = x_pred + K * nu;
-x_est(4) = normalizeAngle(x_est(4));  % keep psi wrapped
-P_est = (I - K*H) * P_pred;
+  % ---------- 3) predicted mean (handle angle properly) ----------
+  x_pred = zeros(n,1);
 
+  % non-angle components
+  x_pred(1) = sum(Wm'.*Xsig_pred(1,:));
+  x_pred(2) = sum(Wm'.*Xsig_pred(2,:));
+  x_pred(3) = sum(Wm'.*Xsig_pred(3,:));
+  x_pred(5) = sum(Wm'.*Xsig_pred(5,:));
 
-  % update estimation history
+  % angle mean for psi
+  sinSum = sum(Wm'.*sin(Xsig_pred(4,:)));
+  cosSum = sum(Wm'.*cos(Xsig_pred(4,:)));
+  x_pred(4) = atan2(sinSum, cosSum);
+  x_pred(4) = normalizeAngle(x_pred(4));
+
+  % ---------- 4) predicted covariance ----------
+  P_pred = zeros(n,n);
+  for k=1:2*n+1
+      dx = Xsig_pred(:,k) - x_pred;
+      dx(4) = normalizeAngle(dx(4));
+      P_pred = P_pred + Wc(k) * (dx*dx');
+  end
+  P_pred = P_pred + Q;
+
+  % ---------- 5) measurement prediction ----------
+  m = 3;
+  Zsig = zeros(m, 2*n+1);
+  for k=1:2*n+1
+      Zsig(:,k) = h_meas(Xsig_pred(:,k));
+  end
+
+  z_pred = zeros(m,1);
+  z_pred(1) = sum(Wm'.*Zsig(1,:));
+  z_pred(2) = sum(Wm'.*Zsig(2,:));
+
+  % angle mean for psi measurement (index 3)
+  sinSumz = sum(Wm'.*sin(Zsig(3,:)));
+  cosSumz = sum(Wm'.*cos(Zsig(3,:)));
+  z_pred(3) = atan2(sinSumz, cosSumz);
+  z_pred(3) = normalizeAngle(z_pred(3));
+
+  % ---------- 6) innovation covariance S and cross covariance Pxz ----------
+  S = zeros(m,m);
+  Pxz = zeros(n,m);
+
+  for k=1:2*n+1
+      dz = Zsig(:,k) - z_pred;
+      dz(3) = normalizeAngle(dz(3));
+
+      dx = Xsig_pred(:,k) - x_pred;
+      dx(4) = normalizeAngle(dx(4));
+
+      S   = S   + Wc(k) * (dz*dz');
+      Pxz = Pxz + Wc(k) * (dx*dz');
+  end
+  S = S + R;
+
+  % ---------- 7) update ----------
+  nu = z - z_pred;
+  nu(3) = normalizeAngle(nu(3));
+
+  K = Pxz / S;
+
+  x_est = x_pred + K*nu;
+  x_est(4) = normalizeAngle(x_est(4));
+
+  P_est = P_pred - K*S*K';
   X_est_Hist = addHistory(X_est_Hist, x_est);
 
- % --- NEES (needs true state expressed as [x;y;v;psi;w]) ---
-x_true = trueToFilterState(x_true);   % helper function below
-e = x_true(:) - x_est(:);
+ % --- NEES (true state expressed as [x;y;v;psi;w]) ---
+  x_true_f = trueToFilterState(x_true);
+  e = x_true_f(:) - x_est(:);
+  e(4) = normalizeAngle(e(4));
 
-% wrap heading error (state index 4 = psi)
-e(4) = normalizeAngle(e(4));
-
-NEES = e' * (P_est \ e);   % numerically better than inv(P)*e
-
+  NEES = e' * (P_est \ e);
   NEES_Hist = addHistory(NEES_Hist, NEES);
   
   % degrees of fisnan(eig)reedom for NEES: dimension of x_est
