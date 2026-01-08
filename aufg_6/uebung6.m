@@ -6,8 +6,11 @@ close all;
 %history size: the number of measurements, estimations,... to store for
 %visualization
 global HIST_SIZE;
-HIST_SIZE = 500;
+HIST_SIZE = 800;
 
+%dimensions of state vector and measurement vector
+DIMX = 5;
+DIMZ = 3;
 
 %the time betweeen to measurements we get
 T = 0.02;
@@ -28,16 +31,16 @@ NIS_Hist = zeros(1,HIST_SIZE);      % NIS - history
 
 
 % measurement noise = ?
-% measurement covariance (given by you)
 R = diag([0.1, 0.1, 0.01]);     % [x,y,psi]
 
 % linear measurement matrix for z=[x;y;psi]
 H = [1 0 0 0 0;
      0 1 0 0 0;
      0 0 0 1 0];
-% tune these (process noise std)
-sigma_a     = 50;%(1.5/T)^2;    % m/s^2   (speed acceleration noise)
-sigma_alpha = 40;%(0.4*pi/T)^2;    % rad/s^2 (psi-rate acceleration noise)
+
+%process noise = ?
+sigma_a = 50;
+sigma_alpha = 40;
 
 Qc = diag([sigma_a^2, sigma_alpha^2]);
 
@@ -49,6 +52,7 @@ G = [ 0,    0;
       0,    T ];   % w += alpha*T
 
 Q = G * Qc * G';
+
 while (1)  % simulation loop
   if (isempty(x_est))
       loops = 2;
@@ -66,7 +70,7 @@ while (1)  % simulation loop
   end
   
   % filter initialization (once per simulation)
-  if (isempty(x_est))  
+  if (isempty(x_est))    
         z_last=Z_Hist(:,1);
         % after you have z_last (=z1) and z (=z2)
         dx = z(1) - z_last(1);
@@ -99,19 +103,30 @@ while (1)  % simulation loop
         % optional: make velocity/yaw-rate uncertainty larger if you want
         P_est(3,3) = 5*P_est(3,3);
         P_est(5,5) = 5*P_est(5,5);
-
   end
 
   % use process modell: CV/CW (VC/VO)
+  %predict cv turn
+  x = x_est(1);  y = x_est(2);  v = x_est(3);  psi = x_est(4);  w = x_est(5);
+
+    % nonlinear state prediction
+    x_pred = [ x + v*cos(psi)*T;
+               y + v*sin(psi)*T;
+               v;
+               normalizeAngle(psi + w*T);
+               w ];
+    
+    % Jacobian F = df/dx
+    F = [ 1, 0, cos(psi)*T, -v*sin(psi)*T, 0;
+          0, 1, sin(psi)*T,  v*cos(psi)*T, 0;
+          0, 0, 1,          0,            0;
+          0, 0, 0,          1,            T;
+          0, 0, 0,          0,            1 ];
 
 
-I = eye(5);
+    P_pred = F * P_est * F' + Q;
 
-% predict
-[x_pred, F] = predict_cv_turn(x_est, T);
-P_pred = F * P_est * F' + Q;
-
-% innovation
+    % innovation
 z_pred = H * x_pred;
 nu = z - z_pred;
 nu(3) = normalizeAngle(nu(3));   % wrap angle innovation
@@ -120,6 +135,7 @@ S = H * P_pred * H' + R;
 K = P_pred * H' / S;
 
 % update
+I = eye(5);
 x_est = x_pred + K * nu;
 x_est(4) = normalizeAngle(x_est(4));  % keep psi wrapped
 P_est = (I - K*H) * P_pred;
@@ -129,9 +145,15 @@ P_est = (I - K*H) * P_pred;
   X_est_Hist = addHistory(X_est_Hist, x_est);
 
  % --- NEES (needs true state expressed as [x;y;v;psi;w]) ---
-x_true5 = trueToFilterState(x_true);   % helper function below
-NEES = calcNEES(x_true5, x_est, P_est);
-NEES_Hist = addHistory(NEES_Hist, NEES);
+x_true = trueToFilterState(x_true);   % helper function below
+e = x_true(:) - x_est(:);
+
+% wrap heading error (state index 4 = psi)
+e(4) = normalizeAngle(e(4));
+
+NEES = e' * (P_est \ e);   % numerically better than inv(P)*e
+
+  NEES_Hist = addHistory(NEES_Hist, NEES);
   
   % degrees of fisnan(eig)reedom for NEES: dimension of x_est
   DOF_NEES = size(x_est,1);
@@ -139,8 +161,8 @@ NEES_Hist = addHistory(NEES_Hist, NEES);
   %one-sided confidence interval of 95% from the chi-square-distribution
   P95_NEES = chi2inv(0.95,DOF_NEES);
 
-NIS = calcNIS(nu, S);
-NIS_Hist = addHistory(NIS_Hist, NIS);
+  NIS = calcNIS(nu, S);
+  NIS_Hist = addHistory(NIS_Hist, NIS);
   % degrees of freedom for NIS: dimension of z
   DOF_NIS = size(z,1);
   P95_NIS = chi2inv(0.95,DOF_NIS);

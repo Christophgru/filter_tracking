@@ -1,5 +1,5 @@
 function uebung2
-%close all;
+close all;
 
 % history size: the number of measurements, estimations,... to store
 global HIST_SIZE;
@@ -36,14 +36,15 @@ F = [1 0 T 0;
 % we measure only position [y; z]
 H = [1 0 0 0;
      0 1 0 0];
+     
 
 % ----------------- α-β gains from λ -------------------------------------
-v_max = 200;             % same as in your Kalman version (tunable idea)
-sigma_v = v_max / 10;    % process noise std on velocity (tunable!)
+a_max = 500;             % same as in your Kalman version (tunable idea)
+sigma_v = a_max / 2;    % process noise std on velocity (tunable!)
 
 % λ = σ_v^2 T^2 / σ_w^2   (lecture)
-lambda_y = (sigma_v^2 * T^2) / (sigma_y^2);
-lambda_z = (sigma_v^2 * T^2) / (sigma_z^2);
+lambda_y = (sigma_v * T^2) / (sigma_y^2);
+lambda_z = (sigma_v * T^2) / (sigma_z^2);
 
 % α, β formulas from your lecture (per axis)
 alpha_y = -1/8 * (lambda_y^2 + 8*lambda_y ...
@@ -56,21 +57,19 @@ alpha_z = -1/8 * (lambda_z^2 + 8*lambda_z ...
 beta_z  =  1/4 * (lambda_z^2 + 4*lambda_z ...
            - lambda_z*sqrt(lambda_z^2 + 8*lambda_z));
 
+          
+
 % Gain matrix K (4x2) for [y; z; vy; vz] <- innovation in [y; z]
 K = [alpha_y     0;
      0        alpha_z;
      beta_y/T   0;
      0       beta_z/T];
+R = diag([sigma_y, sigma_z]);          % measurement noise
 
-% ----------------- covariance & consistency setup -----------------------
-% Simple process/measurement noise models
-Q = diag([0, 0, sigma_v^2, sigma_v^2]);    % process noise on velocities
-R = diag([sigma_y^2, sigma_z^2]);          % measurement noise
-
-P = 1e3 * eye(4);    % initial state covariance (large uncertainty)
-
-nx = 4;              % state dimension
-nz = 2;              % measurement dimension
+P=[alpha_y     0  beta_y/T 0;
+      0        alpha_z 0  beta_z/T;
+      beta_y/T   0 beta_y/T^2*1/(1-alpha_y)*(alpha_y-0.5*beta_y) 0;
+      0 beta_z/T    beta_z/T^2*1/(1-alpha_z)*(alpha_z-0.5*beta_z) 0;];
 
 % 95% chi-square thresholds (hard-coded values)
 P95_NEES = chi2inv(0.95, 4);
@@ -99,21 +98,16 @@ while true
     % Prediction
     x_pred = F * x_est;
 
-    % Covariance prediction
-    P_pred = F * P * F' + Q;
 
     % Innovation (measurement residual)
     v = z - H * x_pred;          % 2x1
 
-    % Innovation covariance (for NIS)
-    S = H * P_pred * H' + R;
 
     % State update with constant α-β gain
     x_est = x_pred + K * v;      % 4x1
 
-    % Covariance update with fixed gain K
-    I = eye(4);
-    P = (I - K * H) * P_pred * (I - K * H)' + K * R * K';
+    % Innovation covariance (for NIS)
+    S = H * P * H' + R;
 
     % update estimation history
     X_est_Hist = addHistory(X_est_Hist, x_est);
