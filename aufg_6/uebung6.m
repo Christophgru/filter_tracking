@@ -124,11 +124,13 @@ while (1)  % simulation loop
 
   % ---------- 1) sigma points from (x_est, P_est) ----------
   % Use Cholesky of P_est (ensure SPD; add small jitter if needed)
-  Sx = chol(P_est, 'lower');   % if this fails, try chol(P_est + 1e-9*eye(n))
-
+  Sx = chol(P_est, 'lower'); 
+  %create the points that will be used for extrapolation
   Xsig = zeros(n, 2*n+1);
+  %first point is the one in the middle
   Xsig(:,1) = x_est;
   for i=1:n
+      %for each dimension add two points with +-gamma
       Xsig(:,1+i)   = x_est + gamma * Sx(:,i);
       Xsig(:,1+n+i) = x_est - gamma * Sx(:,i);
   end
@@ -147,7 +149,7 @@ while (1)  % simulation loop
   % ---------- 3) predicted mean (handle angle properly) ----------
   x_pred = zeros(n,1);
 
-  % non-angle components
+  % non-angle get 'average of propagated points'
   x_pred(1) = sum(Wm'.*Xsig_pred(1,:));
   x_pred(2) = sum(Wm'.*Xsig_pred(2,:));
   x_pred(3) = sum(Wm'.*Xsig_pred(3,:));
