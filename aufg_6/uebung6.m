@@ -109,7 +109,7 @@ while (1)  % simulation loop
   %predict cv turn
  % ---------- UKF parameters (1-sigma points) ----------
   n = 5;
-  lambda = 1 - n;          % so (n+lambda)=1  -> 1-sigma spread
+  lambda = 9 - n;          % so (n+lambda)=1  -> 1-sigma spread
   gamma  = sqrt(n + lambda);
 
   % weights
@@ -145,6 +145,7 @@ while (1)  % simulation loop
   for k=1:2*n+1
       Xsig_pred(:,k) = f_cvturn(Xsig(:,k), T);
   end
+  Xsig_pred_vis = Xsig_pred;   % predicted sigma points
 
   % ---------- 3) predicted mean (handle angle properly) ----------
   x_pred = zeros(n,1);
@@ -254,12 +255,20 @@ while (1)  % simulation loop
     axis([0 15 0 15]);
 
     %draw 3 sigma ellipse
-    [evecs, evals] = eig(P_est(1:2, 1:2));
+    % --- draw 1-sigma covariance ellipse (position only) ---
+    Pxy = P_est(1:2,1:2);
+    [evecs, evals] = eig(Pxy);
+
+    k = 3;      % 1-sigma probability mass in 2D
     c = rsmak('circle',1);
-    ellipse = fncmb(c,diag(diag(evals).*3));
+    ellipse = fncmb(c, diag(sqrt(diag(evals)) * k)); % scale axes by std * k
     ellipse = fncmb(ellipse, evecs);
     ellipse = fncmb(ellipse, x_est(1:2));
     fnplt(ellipse);
+    %add Xpoints to visualisation
+    if exist('Xsig_pred_vis','var') && ~isempty(Xsig_pred_vis)
+      plot(Xsig_pred_vis(1,:), Xsig_pred_vis(2,:), 'mo', 'MarkerSize', 5, 'LineWidth', 1);
+    end
   end
   
   hold off;
