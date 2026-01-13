@@ -269,6 +269,29 @@ while (1)  % simulation loop
     if exist('Xsig_pred_vis','var') && ~isempty(Xsig_pred_vis)
       plot(Xsig_pred_vis(1,:), Xsig_pred_vis(2,:), 'mo', 'MarkerSize', 5, 'LineWidth', 1);
     end
+    % --- heading uncertainty wedge (around velocity direction) ---
+    x0  = x_est(1);
+    y0  = x_est(2);
+    psi = x_est(4);
+
+    % choose which covariance and how many sigmas
+    Ppsi = P_est(4,4);          % or P_pred(4,4)
+    kAng = 3;                   % 1 for 1σ, 3 for 3σ
+
+    dpsi = kAng * sqrt(Ppsi);
+    dpsi = min(dpsi, pi);       % cap to avoid strange full wraps
+
+    % choose a radius for the wedge (e.g. proportional to speed)
+    Rang = 1.0 + 0.5*x_est(3);  % tune as you like
+
+    th = linspace(psi - dpsi, psi + dpsi, 40);
+    th = arrayfun(@normalizeAngle, th);
+
+    % points for a filled sector
+    xs = [x0, x0 + Rang*cos(th), x0];
+    ys = [y0, y0 + Rang*sin(th), y0];
+
+    fill(xs, ys, 'b', 'FaceAlpha', 0.10, 'EdgeColor', 'b', 'LineStyle', '-');
   end
   
   hold off;
