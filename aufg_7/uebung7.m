@@ -14,7 +14,7 @@ HIST_SIZE = 100;
 % dimensions of state vector and measurement vector
 DIMX = 5;
 DIMZ = 3;
-N = ; % Number of particles
+N = 500; % Number of particles
 
 % the time betweeen to measurements we get
 T = 0.02;
@@ -61,49 +61,147 @@ while (1)  % simulation loop
     end
 
     % filter initialization (once per simulation)
-    if (isempty(x_init))
+if (isempty(x_init))
 
-        continue;
-    end
+    % initial guess from first measurement z = (x,y,psi)
+    x_init = zeros(DIMX,1);
+    x_init(1) = z(1);
+    x_init(2) = z(2);
+    x_init(3) = 1.0;      % v initial guess
+    x_init(4) = z(3);     % psi from measurement
+    x_init(5) = 0.0;      % omega initial guess
+
+    % initialize particles around initial guess
+    xi_est = zeros(DIMX, N);
+
+    % spread (tune these)
+    sig_init_xy   = 0.5;
+    sig_init_v    = 1.0;
+    sig_init_psi  = 0.2;
+    sig_init_omg  = 0.5;
+
+    xi_est(1,:) = x_init(1) + sig_init_xy  * randn(1,N);
+    xi_est(2,:) = x_init(2) + sig_init_xy  * randn(1,N);
+    xi_est(3,:) = x_init(3) + sig_init_v   * randn(1,N);
+    xi_est(4,:) = x_init(4) + sig_init_psi * randn(1,N);
+    xi_est(5,:) = x_init(5) + sig_init_omg * randn(1,N);
+
+    weights = ones(N,1) / N;
+
+    % skip PF update this loop (since we just initialized)
+end
+
 
     % Implementation of the particle filter algorithm
 
 
-    % Prediction
-
-    for j = 1:N
-        delta_xi(1,1) = (xi_est(3,j)/xi_est(5,j)) * (sin(xi_est(4,j) + xi_est(5,j)*T) - sin(xi_est(4,j)));
-        delta_xi(2,1) = (xi_est(3,j)/xi_est(5,j)) * (-cos(xi_est(4,j) + xi_est(5,j)*T) + cos(xi_est(4,j)));
-        delta_xi(3,1) = 0;
-        delta_xi(4,1) = xi_est(5,j)*T;
-        delta_xi(5,1) = 0;
-
-        xi_pred(:,j) = ;
-    end
-
 
 
     % Innovation
-    % Update the particle weights
+% ============================================================
+% Particle Filter
+% ============================================================
 
+% Precompute for measurement likelihood
+S = R;                % measurement covariance
+invS = inv(S);
+detS = det(S);
+normConst = 1 / sqrt((2*pi)^DIMZ * detS);
 
-    % Normalization of the weights
+% --------------------
+% Prediction
+% --------------------
+xi_pred = zeros(DIMX, N);
 
+% Prozessrauschen (tunen!)
+% du hast sigma2a und sigma2wa vorgegeben; das sind Varianzen.
+sig_a  = sqrt(sigma2a);
+sig_wa = sqrt(sigma2wa);
 
-    % Test if resampling is necessery
+for j = 1:N
+    v     = xi_est(3,j);
+    psi   = xi_est(4,j);
+    omega = xi_est(5,j);
 
+    % CTRV motion model (mit Sonderfall omega ~ 0)
+    if abs(omega) < 1e-6
+        dx = v * cos(psi) * T;
+        dy = v * sin(psi) * T;
+    else
+        dx = (v/omega) * (sin(psi + omega*T) - sin(psi));
+        dy = (v/omega) * (-cos(psi + omega*T) + cos(psi));
+    end
 
+    % deterministic state update
+    xi = xi_est(:,j);
+    xi(1) = xi(1) + dx;
+    xi(2) = xi(2) + dy;
+    xi(4) = normalizeAngle(xi(4) + omega*T);  % psi
+    % v und omega bleiben deterministisch gleich und bekommen Rauschen
 
-    x_est = xi_est*weights;
-    x_est = normalizeVelocity(x_est,3,4);
+    % add process noise (acceleration + yaw-acceleration)
+    a  = sig_a  * randn();
+    wa = sig_wa * randn();
 
+    xi(3) = xi(3) + a*T;        % v
+    xi(5) = xi(5) + wa*T;       % omega
 
+    xi_pred(:,j) = xi;
+end
 
+% --------------------
+% Innovation / Update weights (measurement likelihood)
+% measurement: z = [x; y; psi]
+% H maps [x y v psi omega] -> [x y psi]
+% --------------------
+w_new = zeros(N,1);
 
+for j = 1:N
+    z_pred = H * xi_pred(:,j);          % predicted measurement
+    innov  = z - z_pred;
 
+    % angle innovation properly
+    innov(3) = normalizeAngle(innov(3));
 
-    % update estimation history
+    % Gaussian likelihood
+    w_new(j) = weights(j) * normConst * exp(-0.5 * (innov' * invS * innov));
+end
+
+% --------------------
+% Normalize weights
+% --------------------
+wsum = sum(w_new);
+if wsum <= 0 || ~isfinite(wsum)
+    % fallback to uniform if numerical issues
+    weights = ones(N,1) / N;
+else
+    weights = w_new / wsum;
+end
+
+% --------------------
+% Resampling decision (ESS)
+% --------------------
+Neff = 1 / sum(weights.^2);
+do_resample = (Neff < 0.5 * N);   % threshold, z.B. 0.5*N
+
+if do_resample
+    % Use your systematic resampling function
+    idx = systematic_resampling(weights);   % returns Nx1 indices
+
+    xi_est = xi_pred(:, idx);
+
+    % reset weights to uniform
+    weights = ones(N,1) / N;
+else
+    xi_est = xi_pred;
+end
+x_est = xi_est*weights;
+x_est = normalizeVelocity(x_est,3,4);
+if ~isempty(x_est)
     X_est_Hist = addHistory(X_est_Hist, x_est);
+end
+
+
 
 
 
@@ -149,17 +247,48 @@ while (1)  % simulation loop
     title 'measurement'
 
     % Weights
-    subplot(2,2,3)
-
-    title 'Weights'
+subplot(2,2,3)
+if ~isempty(weights)
+    stem(weights, 'filled');   % oder bar(weights)
+    ylim([0, max(weights)*1.1 + eps]);
+end
+grid on
+title('Weight distribution');
+xlabel('Particle index'); ylabel('weight');
 
     % state distribution
     subplot(2,2,4)
+if ~isempty(xi_est)
+    % Partikelwolke (x,y)
+    plot(xi_est(1,:), xi_est(2,:), 'k.', 'MarkerSize', 6);
+    hold on;
 
-    title 'state distribution'
+    % exemplarischer Zustand: Partikel mit maximalem Gewicht
+    [~, jStar] = max(weights);
+    x_ex  = xi_est(1,jStar);
+    y_ex  = xi_est(2,jStar);
+    v_ex  = xi_est(3,jStar);
+    psi_ex = xi_est(4,jStar);
 
-    drawnow
-    pause(0.2);
+    % exemplarisches Partikel hervorheben
+    plot(x_ex, y_ex, 'ro', 'MarkerSize', 10, 'LineWidth', 2);
+
+    % Richtung/Velocity als Pfeil (nutzt deine plotDirVec-Funktion)
+    vFactorEx = 0.5;
+    plotDirVec(x_ex, y_ex, psi_ex, v_ex * vFactorEx, 'r');
+
+    % optional: geschätzten Zustand auch markieren
+    if ~isempty(x_est)
+        plot(x_est(1), x_est(2), 'bx', 'MarkerSize', 10, 'LineWidth', 2);
+    end
+
+    axis([-5 20 0 15]);
+    daspect([1 1 1]);
+end
+title('Particles + exemplar state');
+xlabel('x'); ylabel('y');
+drawnow
+pause(0.05);
 
 end
 
