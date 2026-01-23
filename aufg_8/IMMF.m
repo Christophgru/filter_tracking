@@ -86,57 +86,44 @@ while (l < nruns)
     mu_pred_cv = mu_est_cv;
     mu_pred_ca = mu_est_ca;
     
-    % transition probability for models - ToDo
-    p_cv_cv = 0.5;  p_ca_cv = 0.5;   % from CV -> (CV, CA)
-    p_cv_ca = 0.5;  p_ca_ca = 0.5;   % from CA -> (CV, CA)
-      
-      % calc new mixed states and covariances - ToDo
-      % ---- Model transition matrix Pi(i,j) = P(M_k=i | M_{k-1}=j)
+    % transitions (example: mostly stay, sometimes switch)
+    mu_cv2cv = 0.9;  mu_cv2ca = 0.1;
+    mu_ca2cv = 0.1;  mu_ca2ca = 0.9;
+        %Normierungskonstante c_i = P(M_k = i)
+    c_cv = mu_cv2cv*mu_est_cv + mu_ca2cv*mu_est_ca;  % P(M_k=CV)
+    c_ca = mu_cv2ca*mu_est_cv + mu_ca2ca*mu_est_ca;  % P(M_k=CA)
 
+    % mixed state and covariance - ToDo
+    x_est_cv_IMMF_mixed = x_est_cv_IMMF;
+    P_est_cv_IMMF_mixed = P_est_cv_IMMF;
+    x_est_ca_IMMF_mixed = x_est_ca_IMMF;
+    P_est_ca_IMMF_mixed = P_est_ca_IMMF;
+    if ~isempty(x_est_cv) && ~isempty(x_est_ca)
+        % ---- mixing probabilities mu_ij = P(M_{k-1}=j | M_k=i)
+        w_cv_from_cv = (mu_cv2cv*mu_est_cv) / c_cv;
+        w_cv_from_ca = (mu_ca2cv*mu_est_ca) / c_cv;
 
-    Pi = [p_cv_cv, p_cv_ca;    % row = current model (CV)
-          p_ca_cv, p_ca_ca];   % row = current model (CA)
+        w_ca_from_cv = (mu_cv2ca*mu_est_cv) / c_ca;
+        w_ca_from_ca = (mu_ca2ca*mu_est_ca) / c_ca;
 
-    % ---- prior model probabilities at k-1 (must sum to 1)
-    mu_prev = [mu_est_cv; mu_est_ca];
+        %mix states 
+        x_est_cv_IMMF_mixed = w_cv_from_cv*x_est_cv + w_cv_from_ca*x_est_ca;
+        x_est_ca_IMMF_mixed = w_ca_from_cv*x_est_cv + w_ca_from_ca*x_est_ca;
+        %mix covariances
+        dx_cv_from_cv = x_est_cv - x_est_cv_IMMF_mixed;
+        dx_cv_from_ca = x_est_ca - x_est_cv_IMMF_mixed;
 
-    % ---- normalization constants c_i
-    c = Pi * mu_prev;  % 2x1, c(i)=sum_j Pi(i,j)*mu_prev(j)
+        P_est_cv_IMMF_mixed = ...
+            w_cv_from_cv*(P_est_cv + dx_cv_from_cv*dx_cv_from_cv.') + ...
+            w_cv_from_ca*(P_est_ca + dx_cv_from_ca*dx_cv_from_ca.');
 
-    % ---- mixing probabilities mu_ij = P(M_{k-1}=j | M_k=i)
-    mu_mix = zeros(2,2); % rows i (current), cols j (previous)
-    for i = 1:2
-        for j = 1:2
-            mu_mix(i,j) = Pi(i,j) * mu_prev(j) / c(i);
-        end
+        dx_ca_from_cv = x_est_cv - x_est_ca_IMMF_mixed;
+        dx_ca_from_ca = x_est_ca - x_est_ca_IMMF_mixed;
+
+        P_est_ca_IMMF_mixed = ...
+            w_ca_from_cv*(P_est_cv + dx_ca_from_cv*dx_ca_from_cv.') + ...
+            w_ca_from_ca*(P_est_ca + dx_ca_from_ca*dx_ca_from_ca.');
     end
-
-    % ---- gather states/covs into cell arrays for compact code
-    x = {x_est_cv, x_est_ca};
-    P = {P_est_cv, P_est_ca};
-
-    % ---- mixed initial conditions for each model i
-    x0 = cell(2,1);
-    P0 = cell(2,1);
-
-    for i = 1:2
-        % mixed mean
-        x0{i} = mu_mix(i,1)*x{1} + mu_mix(i,2)*x{2};
-
-        % mixed covariance (with spread term!)
-        P0{i} = zeros(size(P{1}));
-        for j = 1:2
-            dx = x{j} - x0{i};
-            P0{i} = P0{i} + mu_mix(i,j) * ( P{j} + dx*dx' );
-        end
-    end
-
-    % outputs:
-    x_est_cv_IMMF_mixed = x0{1};
-    P_est_cv_IMMF_mixed = P0{1};
-
-    x_est_ca_IMMF_mixed = x0{2};
-    P_est_ca_IMMF_mixed = P0{2};
 
     %================================================%        
     % calculate prediction and update for each model
@@ -158,10 +145,22 @@ while (l < nruns)
     % calculation of new model probability mu and normalisation - ToDo
     %===========================================================%
     %sum nis for normalisation
-    nis_sum = nis_cv_IMMF + nis_ca_IMMF;
-    mu_est_cv = nis_ca_IMMF / nis_sum;
-    mu_est_ca = nis_cv_IMMF / nis_sum;
+    % predicted mode probs (from Markov chain)
+    mu_pred_cv = c_cv;   % already computed as P(M_k=CV)
+    mu_pred_ca = c_ca;   % already computed as P(M_k=CA)
+
+    % mode probability update with likelihoods
+    mu_est_cv = likelihood_cv * mu_pred_cv;
+    mu_est_ca = likelihood_ca * mu_pred_ca;
+
+    % normalize
+    mu_norm = mu_est_cv + mu_est_ca;
+    mu_est_cv = mu_est_cv / mu_norm;
+    mu_est_ca = mu_est_ca / mu_norm;
+
   
+    mu_est_cv_Hist = addHistory(mu_est_cv_Hist, mu_est_cv);
+    mu_est_ca_Hist = addHistory(mu_est_ca_Hist, mu_est_ca);
     %===========================%
     % calculate results of IMMF - ToDo
     %===========================%
@@ -249,19 +248,27 @@ while (l < nruns)
     title 'measurement'
     
     % Velocity in y-direction and model probability 
-    % ToDo: plot History of mu
-    
-    subplot(2,2,4)
-    yyaxis left;
-    plot(Vel_Hist,'b','LineWidth',3);
+   subplot(2,2,4); cla;
+
+    yyaxis left
+    plot(Vel_Hist,'LineWidth',2);
     ylim([0,100]);
     ylabel('v_y');
-    yyaxis right;
+
+    yyaxis right
+    if ~isempty(mu_est_cv_Hist)
+      plot(mu_est_cv_Hist,'LineWidth',2); hold on;
+    end
+    if ~isempty(mu_est_ca_Hist)
+      plot(mu_est_ca_Hist,'LineWidth',2); hold off;
+    end
     ylim([0,1]);
-    ylabel('\mu_i');  
-    hold off
-    legend('v_y')
-    title 'ground-truth velocity in y-direction and model probability'
+    ylabel('\mu');
+
+    grid on
+    title('ground-truth velocity and model probabilities');
+    legend('v_y','\mu_{cv}','\mu_{ca}','Location','best');
+
   
     drawnow
     pause(0.03);
