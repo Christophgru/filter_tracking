@@ -84,8 +84,11 @@ function [x_res,P_res,likelihood,init,nis] = kalmanFilter_cv(x_est,P_est, Z_Hist
     init = 0;
     
     % Berechnung der kosten ueber die Likelihood - ToDo
+    nu= z - z_pred;
+    nu = nu(:);
+    nis = nu' * (S \ nu);
 %   likelihood = ?;
-    likelihood = [];
+    likelihood = [nis];
     
     % calculation of NIS
     nis = (z - z_pred)' * inv(S) * (z - z_pred);
