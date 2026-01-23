@@ -9,7 +9,7 @@ close all;
 % history size: the number of measurements, estimations,... to store for
 % visualization
 global HIST_SIZE;
-HIST_SIZE = 100;
+HIST_SIZE = 500;
 
 % dimensions of state vector and measurement vector
 DIMX = 5;
@@ -182,8 +182,8 @@ end
 % Resampling decision (ESS)
 % --------------------
 Neff = 1 / sum(weights.^2);
-do_resample = (Neff < 0.5 * N);   % threshold, z.B. 0.5*N
-
+do_resample = (Neff < 0.2 * N);   % threshold, z.B. 0.2*N
+%do_resample=false;
 if do_resample
     % Use your systematic resampling function
     idx = systematic_resampling(weights);   % returns Nx1 indices
@@ -287,8 +287,7 @@ if ~isempty(xi_est)
 end
 title('Particles + exemplar state');
 xlabel('x'); ylabel('y');
-drawnow
-pause(0.05);
+drawnow;
 
 end
 
