@@ -87,18 +87,57 @@ while (l < nruns)
     mu_pred_ca = mu_est_ca;
     
     % transition probability for models - ToDo
-    mu_cv2ca = 0.5;
-    mu_ca2cv = 0.5;
-    mu_cv2cv = 0.5;
-    mu_ca2ca = 0.5;
-    
-    % calc new mixed states and covariances - ToDo
-    x_est_cv_IMMF_mixed = mu_cv2cv * x_est_cv + mu_ca2cv * x_est_ca;
-    x_est_ca_IMMF_mixed = mu_cv2ca * x_est_cv + mu_ca2ca * x_est_ca;
+    p_cv_cv = 0.5;  p_ca_cv = 0.5;   % from CV -> (CV, CA)
+    p_cv_ca = 0.5;  p_ca_ca = 0.5;   % from CA -> (CV, CA)
+      
+      % calc new mixed states and covariances - ToDo
+      % ---- Model transition matrix Pi(i,j) = P(M_k=i | M_{k-1}=j)
 
-    P_est_cv_IMMF_mixed = mu_cv2cv * P_est_cv + mu_ca2cv * P_est_ca;
-    P_est_ca_IMMF_mixed = mu_cv2ca * P_est_cv + mu_ca2ca * P_est_ca;          
-    
+
+    Pi = [p_cv_cv, p_cv_ca;    % row = current model (CV)
+          p_ca_cv, p_ca_ca];   % row = current model (CA)
+
+    % ---- prior model probabilities at k-1 (must sum to 1)
+    mu_prev = [mu_est_cv; mu_est_ca];
+
+    % ---- normalization constants c_i
+    c = Pi * mu_prev;  % 2x1, c(i)=sum_j Pi(i,j)*mu_prev(j)
+
+    % ---- mixing probabilities mu_ij = P(M_{k-1}=j | M_k=i)
+    mu_mix = zeros(2,2); % rows i (current), cols j (previous)
+    for i = 1:2
+        for j = 1:2
+            mu_mix(i,j) = Pi(i,j) * mu_prev(j) / c(i);
+        end
+    end
+
+    % ---- gather states/covs into cell arrays for compact code
+    x = {x_est_cv, x_est_ca};
+    P = {P_est_cv, P_est_ca};
+
+    % ---- mixed initial conditions for each model i
+    x0 = cell(2,1);
+    P0 = cell(2,1);
+
+    for i = 1:2
+        % mixed mean
+        x0{i} = mu_mix(i,1)*x{1} + mu_mix(i,2)*x{2};
+
+        % mixed covariance (with spread term!)
+        P0{i} = zeros(size(P{1}));
+        for j = 1:2
+            dx = x{j} - x0{i};
+            P0{i} = P0{i} + mu_mix(i,j) * ( P{j} + dx*dx' );
+        end
+    end
+
+    % outputs:
+    x_est_cv_IMMF_mixed = x0{1};
+    P_est_cv_IMMF_mixed = P0{1};
+
+    x_est_ca_IMMF_mixed = x0{2};
+    P_est_ca_IMMF_mixed = P0{2};
+
     %================================================%        
     % calculate prediction and update for each model
     %================================================%
@@ -136,7 +175,7 @@ while (l < nruns)
     X_est_Hist_ca = addHistory(X_est_Hist_ca, x_est_ca);
     
     % calculate nees - ToDo for IMMF!
-    nees_IMMF  = 0;
+    nees_IMMF  = calcNEES(x_true, x_est_IMMF, P_est_IMMF);
     NEES_Hist_IMMF = addHistory(NEES_Hist_IMMF,nees_IMMF);
   
     nees_cv = (x_true(1:x_dim-2) - x_est_cv(1:x_dim-2))'*inv(P_est_cv(1:x_dim-2,1:x_dim-2))*(x_true(1:x_dim-2) - x_est_cv(1:x_dim-2));
@@ -211,6 +250,7 @@ while (l < nruns)
     
     % Velocity in y-direction and model probability 
     % ToDo: plot History of mu
+    
     subplot(2,2,4)
     yyaxis left;
     plot(Vel_Hist,'b','LineWidth',3);
