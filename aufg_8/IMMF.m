@@ -240,27 +240,34 @@ while (l < nruns)
     grid on
     title 'true trajectory'
     
-    % NEES
-    subplot(2,2,2)
-    plot(NEES_Hist_IMMF,'b','LineWidth',3);
-    hold on;  
+    % NEES + NIS (extra scale for NIS)
+    subplot(2,2,2); cla;
+
+    yyaxis left
+    plot(NEES_Hist_IMMF,'b','LineWidth',3); hold on;
     plot(NEES_Hist_cv,'LineWidth',2,'Color','g');
-    hold on;  
     plot(NEES_Hist_ca,'c','LineWidth',2);
-    hold on;  
-    plot(NIS_Hist_cv,'--','LineWidth',1,'Color','g');
-    hold on;
-    plot(NIS_Hist_ca,'--','LineWidth',1,'Color','c');
-    hold on;
     line([0 size(NEES_Hist_ca,2)], [P95_NEES_ca P95_NEES_ca], 'Color', 'r');
-    hold on
     line([0 size(NEES_Hist_cv,2)], [P95_NEES_cv P95_NEES_cv], 'Color', 'r','LineStyle','--');
-    ylim([0,100]);
-    %   xlabel('Iteration');
+    ylim([0,40]);
     ylabel('NEES');
+
+    yyaxis right
+    plot(NIS_Hist_cv,'--','LineWidth',1,'Color','g'); hold on;
+    plot(NIS_Hist_ca,'--','LineWidth',1,'Color','c');
+    % optional: auto-scale NIS nicely
+    nis_max = max([NIS_Hist_cv(:); NIS_Hist_ca(:); 1]);
+    ylim([0, 1.1*nis_max]);
+    ylabel('NIS (dotted)');
+
+    grid on
+    title('NEES (solid) and NIS (dotted)')
+    legend('IMMF','CV_{NEES}','CA_{NEES}','Boundary IMMF/CA','Boundary CV', ...
+          'CV_{NIS} (dotted)','CA_{NIS} (dotted)','Location','best');
     hold off;
-    title 'normalized estimation error squared (NEES)'
-    legend('IMMF','CV_{NEES}','CA_{NEES}','CV_{NIS}', 'CA_{NIS}', 'Boundary IMMF/CA', 'Boundary CV')
+
+
+
 
     % measurement trajectory
     subplot(2,2,3);
