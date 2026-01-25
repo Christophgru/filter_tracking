@@ -83,15 +83,18 @@ function [x_res,P_res,likelihood,init,nis] = kalmanFilter_cv(x_est,P_est, Z_Hist
     
     init = 0;
     
-    % Berechnung der kosten ueber die Likelihood - ToDo
-    nu= z - z_pred;
+  % Berechnung der kosten ueber die Likelihood - ToDo
+    nu = z - z_pred;
     nu = nu(:);
-    nis = nu' * (S \ nu);
-%   likelihood = ?;
-    likelihood = [nis];
-    
-    % calculation of NIS
-    nis = (z - z_pred)' * inv(S) * (z - z_pred);
+    m  = length(nu);
+    nis = nu' * (S \ nu);          % scalar NIS, stable
+
+    % likelihood proportional to p(z|model)
+    U = chol(S);                % S = U'*U
+    logdetS = 2 * sum(log(diag(U)));
+
+    loglik = -0.5 * (nis + logdetS + m*log(2*pi));   % = log Lambda
+    likelihood = exp(loglik);
 
 end
 

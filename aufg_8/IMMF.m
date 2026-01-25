@@ -42,14 +42,16 @@ mu_est_ca_Hist = [];            % history of probability for model ca
 
 
 % transition probability for models used in IMMF - ToDo
-% p_11 = ?;        % probability that modus 1 (CV) is kept               
-% p_12 = ?;        % probability that modus 1 (CV) switches to modus 2 (CA)
-% p_21 = ?;        % probability that modus 2 (CA) switches to modus 1 (CV)
-% p_22 = ?;        % probability that modus 2 (CA) is kept
+p_11 = 0.95;        % probability that modus 1 (CV) is kept               
+p_12 = 0.05;        % probability that modus 1 (CV) switches to modus 2 (CA)
+p_21 = 0.05;        % probability that modus 2 (CA) switches to modus 1 (CV)
+p_22 = 0.95;        % probability that modus 2 (CA) is kept
 
 % performance variables
 NEES_Hist_cv = zeros(1,HIST_SIZE);     % NEES - history of CV
 NEES_Hist_ca = zeros(1,HIST_SIZE);     % NEES - history of CA
+NIS_Hist_cv = zeros(1,HIST_SIZE);     % NIS - history of CV
+NIS_Hist_ca = zeros(1,HIST_SIZE);     % NIS - history of CA
 NEES_Hist_IMMF = zeros(1,HIST_SIZE);   % NEES - history of IMMF
 
 % only for visualization
@@ -86,44 +88,50 @@ while (l < nruns)
     mu_pred_cv = mu_est_cv;
     mu_pred_ca = mu_est_ca;
     
-    % transitions (example: mostly stay, sometimes switch)
-    mu_cv2cv = 0.9;  mu_cv2ca = 0.1;
-    mu_ca2cv = 0.1;  mu_ca2ca = 0.9;
         %Normierungskonstante c_i = P(M_k = i)
-    c_cv = mu_cv2cv*mu_est_cv + mu_ca2cv*mu_est_ca;  % P(M_k=CV)
-    c_ca = mu_cv2ca*mu_est_cv + mu_ca2ca*mu_est_ca;  % P(M_k=CA)
+    c_cv = p_11*mu_est_cv + p_21*mu_est_ca;  % P(M_k=CV)
+    c_ca = p_12*mu_est_cv + p_22 *mu_est_ca;  % P(M_k=CA)
+    %cli for numerical stability
+    epsc = 1e-12;
+    c_cv = max(c_cv, epsc);
+    c_ca = max(c_ca, epsc);
 
-    % mixed state and covariance - ToDo
+    % Default: no mixing until IMMF states exist
+    % Default: no mixing until IMMF states exist
     x_est_cv_IMMF_mixed = x_est_cv_IMMF;
     P_est_cv_IMMF_mixed = P_est_cv_IMMF;
     x_est_ca_IMMF_mixed = x_est_ca_IMMF;
     P_est_ca_IMMF_mixed = P_est_ca_IMMF;
-    if ~isempty(x_est_cv) && ~isempty(x_est_ca)
-        % ---- mixing probabilities mu_ij = P(M_{k-1}=j | M_k=i)
-        w_cv_from_cv = (mu_cv2cv*mu_est_cv) / c_cv;
-        w_cv_from_ca = (mu_ca2cv*mu_est_ca) / c_cv;
 
-        w_ca_from_cv = (mu_cv2ca*mu_est_cv) / c_ca;
-        w_ca_from_ca = (mu_ca2ca*mu_est_ca) / c_ca;
+    % Do IMM mixing only when BOTH IMMF-conditioned states are available
+    if ~isempty(x_est_cv_IMMF) && ~isempty(x_est_ca_IMMF)
 
-        %mix states 
-        x_est_cv_IMMF_mixed = w_cv_from_cv*x_est_cv + w_cv_from_ca*x_est_ca;
-        x_est_ca_IMMF_mixed = w_ca_from_cv*x_est_cv + w_ca_from_ca*x_est_ca;
-        %mix covariances
-        dx_cv_from_cv = x_est_cv - x_est_cv_IMMF_mixed;
-        dx_cv_from_ca = x_est_ca - x_est_cv_IMMF_mixed;
+        % mixing probabilities w_{i<-j} = P(M_{k-1}=j | M_k=i)
+        w_cv_from_cv = (p_11*mu_est_cv) / c_cv;
+        w_cv_from_ca = (p_21*mu_est_ca) / c_cv;
 
-        P_est_cv_IMMF_mixed = ...
-            w_cv_from_cv*(P_est_cv + dx_cv_from_cv*dx_cv_from_cv.') + ...
-            w_cv_from_ca*(P_est_ca + dx_cv_from_ca*dx_cv_from_ca.');
+        w_ca_from_cv = (p_12*mu_est_cv) / c_ca;
+        w_ca_from_ca = (p_22*mu_est_ca) / c_ca;
+        % Mixed initial means for the two filters
+        x_est_cv_IMMF_mixed = w_cv_from_cv*x_est_cv_IMMF + w_cv_from_ca*x_est_ca_IMMF;
+        x_est_ca_IMMF_mixed = w_ca_from_cv*x_est_cv_IMMF + w_ca_from_ca*x_est_ca_IMMF;
 
-        dx_ca_from_cv = x_est_cv - x_est_ca_IMMF_mixed;
-        dx_ca_from_ca = x_est_ca - x_est_ca_IMMF_mixed;
+        % Mixed covariances (with spread term)
+        dx = x_est_cv_IMMF - x_est_cv_IMMF_mixed;
+        P1 = P_est_cv_IMMF + dx*dx.';
+        dx = x_est_ca_IMMF - x_est_cv_IMMF_mixed;
+        P2 = P_est_ca_IMMF + dx*dx.';
+        P_est_cv_IMMF_mixed = w_cv_from_cv*P1 + w_cv_from_ca*P2;
 
-        P_est_ca_IMMF_mixed = ...
-            w_ca_from_cv*(P_est_cv + dx_ca_from_cv*dx_ca_from_cv.') + ...
-            w_ca_from_ca*(P_est_ca + dx_ca_from_ca*dx_ca_from_ca.');
+        dx = x_est_cv_IMMF - x_est_ca_IMMF_mixed;
+        P1 = P_est_cv_IMMF + dx*dx.';
+        dx = x_est_ca_IMMF - x_est_ca_IMMF_mixed;
+        P2 = P_est_ca_IMMF + dx*dx.';
+        P_est_ca_IMMF_mixed = w_ca_from_cv*P1 + w_ca_from_ca*P2;
     end
+
+
+
 
     %================================================%        
     % calculate prediction and update for each model
@@ -131,7 +139,10 @@ while (l < nruns)
     % results for IMMF - ToDo: comment in
     [x_est_cv_IMMF,P_est_cv_IMMF,likelihood_cv, init, nis_cv_IMMF] = kalmanFilter_cv(x_est_cv_IMMF_mixed,P_est_cv_IMMF_mixed, Z_Hist,l,T,init_num);
     [x_est_ca_IMMF,P_est_ca_IMMF,likelihood_ca, init, nis_ca_IMMF] = kalmanFilter_ca(x_est_ca_IMMF_mixed,P_est_ca_IMMF_mixed, Z_Hist,l,T,init_num);
-    
+    llr = log(likelihood_cv) - log(likelihood_ca);  % log-likelihood ratio
+    fprintf("k=%d  NIScv=%.2f  NISca=%.2f  LLR=%.3f\n", l, nis_cv_IMMF, nis_ca_IMMF, llr);
+
+
     % results for kalman-filter using CV- or CA-model only needed for
     % comparison with IMMF
     [x_est_cv,P_est_cv,~, init, nis_cv] = kalmanFilter_cv(x_est_cv,P_est_cv, Z_Hist,l,T,init_num);
@@ -144,16 +155,19 @@ while (l < nruns)
     %===========================================================%
     % calculation of new model probability mu and normalisation - ToDo
     %===========================================================%
-    %sum nis for normalisation
-    % predicted mode probs (from Markov chain)
-    mu_pred_cv = c_cv;   % already computed as P(M_k=CV)
-    mu_pred_ca = c_ca;   % already computed as P(M_k=CA)
+    %add sharpening of likelihoods
 
-    % mode probability update with likelihoods
-    mu_est_cv = likelihood_cv * mu_pred_cv;
-    mu_est_ca = likelihood_ca * mu_pred_ca;
+    alpha = 3;   % try 1.5..6 (bigger = more decisive)
 
-    % normalize
+    mu_pred_cv = c_cv;
+    mu_pred_ca = c_ca;
+
+    Lambda_cv = exp(-0.5 * alpha * nis_cv_IMMF);
+    Lambda_ca = exp(-0.5 * alpha * nis_ca_IMMF);
+
+    mu_est_cv = mu_pred_cv * Lambda_cv;
+    mu_est_ca = mu_pred_ca * Lambda_ca;
+    %normalize
     mu_norm = mu_est_cv + mu_est_ca;
     mu_est_cv = mu_est_cv / mu_norm;
     mu_est_ca = mu_est_ca / mu_norm;
@@ -165,8 +179,15 @@ while (l < nruns)
     % calculate results of IMMF - ToDo
     %===========================%
     % combine results of filters with different models for IMMF
-    x_est_IMMF = mu_est_cv * x_est_cv_IMMF + mu_est_ca * x_est_ca_IMMF;
-    P_est_IMMF = mu_est_cv * P_est_cv_IMMF + mu_est_ca * P_est_ca_IMMF;
+    x_est_IMMF = mu_est_cv*x_est_cv_IMMF + mu_est_ca*x_est_ca_IMMF;
+
+    dx_cv = x_est_cv_IMMF - x_est_IMMF;
+    dx_ca = x_est_ca_IMMF - x_est_IMMF;
+
+    P_est_IMMF = ...
+        mu_est_cv*(P_est_cv_IMMF + dx_cv*dx_cv.') + ...
+        mu_est_ca*(P_est_ca_IMMF + dx_ca*dx_ca.');
+
 
     % update estimation history - ToDo: comment in
     X_est_Hist_IMMF = addHistory(X_est_Hist_IMMF, x_est_IMMF);
@@ -182,6 +203,9 @@ while (l < nruns)
 
     nees_ca = (x_true(1:x_dim) - x_est_ca(1:x_dim))'*inv(P_est_ca(1:x_dim,1:x_dim))*(x_true(1:x_dim) - x_est_ca(1:x_dim));
     NEES_Hist_ca = addHistory(NEES_Hist_ca,nees_ca);
+
+    NIS_Hist_ca = addHistory(NIS_Hist_ca, nis_ca_IMMF);
+    NIS_Hist_cv = addHistory(NIS_Hist_cv, nis_cv_IMMF);
 
     P95_NEES_cv = chi2inv(0.95,x_dim-2);
     P95_NEES_ca = chi2inv(0.95,x_dim);
@@ -200,8 +224,8 @@ while (l < nruns)
       % calculate confidence ellipse
       t = linspace(0,2*pi,100);
       [V, D] = eig(P_est_IMMF(1:2,1:2));
-      el_y = x_est_IMMF(1) + 9*sqrt(D(1,1))*cos(t);
-      el_z = x_est_IMMF(2) + 9*sqrt(D(2,2))*sin(t);  
+      el_y = x_est_IMMF(1) + 3*sqrt(D(1,1))*cos(t);
+      el_z = x_est_IMMF(2) + 3*sqrt(D(2,2))*sin(t);  
       
       % plot
       plot(x_est_IMMF(1),x_est_IMMF(2),'c.','MarkerSize',25); 
@@ -224,6 +248,10 @@ while (l < nruns)
     hold on;  
     plot(NEES_Hist_ca,'c','LineWidth',2);
     hold on;  
+    plot(NIS_Hist_cv,'--','LineWidth',1,'Color','g');
+    hold on;
+    plot(NIS_Hist_ca,'--','LineWidth',1,'Color','c');
+    hold on;
     line([0 size(NEES_Hist_ca,2)], [P95_NEES_ca P95_NEES_ca], 'Color', 'r');
     hold on
     line([0 size(NEES_Hist_cv,2)], [P95_NEES_cv P95_NEES_cv], 'Color', 'r','LineStyle','--');
@@ -232,7 +260,7 @@ while (l < nruns)
     ylabel('NEES');
     hold off;
     title 'normalized estimation error squared (NEES)'
-    legend('IMMF','CV','CA', 'Boundary IMMF/CA', 'Boundary CV')
+    legend('IMMF','CV_{NEES}','CA_{NEES}','CV_{NIS}', 'CA_{NIS}', 'Boundary IMMF/CA', 'Boundary CV')
 
     % measurement trajectory
     subplot(2,2,3);
