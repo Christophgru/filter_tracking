@@ -42,10 +42,10 @@ mu_est_ca_Hist = [];            % history of probability for model ca
 
 
 % transition probability for models used in IMMF - ToDo
-p_11 = 0.95;        % probability that modus 1 (CV) is kept               
-p_12 = 0.05;        % probability that modus 1 (CV) switches to modus 2 (CA)
-p_21 = 0.05;        % probability that modus 2 (CA) switches to modus 1 (CV)
-p_22 = 0.95;        % probability that modus 2 (CA) is kept
+p_11 = 0.98;        % probability that modus 1 (CV) is kept               
+p_12 = 0.02;        % probability that modus 1 (CV) switches to modus 2 (CA)
+p_21 = 0.02;        % probability that modus 2 (CA) switches to modus 1 (CV)
+p_22 = 0.98;        % probability that modus 2 (CA) is kept
 
 % performance variables
 NEES_Hist_cv = zeros(1,HIST_SIZE);     % NEES - history of CV
