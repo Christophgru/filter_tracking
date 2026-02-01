@@ -21,5 +21,5 @@ function A=associateMeasurementsInit(Z1,Z2)
 end
 
 function dist=calc_distance(z1,z2)
-    dist=(z1.x - z2.x)^2 + (z1.y - z2.y)^2;
+    dist = (z1(1) - z2(1))^2 + (z1(2) - z2(2))^2;
 end
