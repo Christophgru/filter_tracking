@@ -164,8 +164,25 @@ while (1)
     col = COLORS{Z(i).tid};
     plot(z(1),z(2), [col 'd'],'MarkerSize',10);
     if(~isempty(A))
-      tid = find(A(:,i)==1);
-      lh = line([kf(tid).x_est(1), z(1)],[kf(tid).x_est(2) z(2)]);
+      tids = find(A(:,i)==1);
+      if isempty(tids)
+        % no track associated to this measurement (shouldn't happen in your assumptions)
+        assoFail = assoFail + 1;   % or count separately as "miss"
+        continue;
+      end
+
+      if numel(tids) > 1
+          % multiple tracks associated to same measurement -> double association
+          % count extras as failures (or count separately)
+          assoFail = assoFail + (numel(tids) - 1);
+
+          % choose one track to draw (e.g. the first)
+          tid = tids(1);
+      else
+          tid = tids(1);
+      end
+
+      lh = line([kf(tid).x_est(1), z(1)], [kf(tid).x_est(2), z(2)]);
       %compare the track ids
       if(Z(i).tid == tid)
         set(lh, 'Color', 'b');
@@ -186,7 +203,7 @@ while (1)
   
   
   drawnow
-  pause(0.1);
+  %pause(0.1);
   NR_ITER  = NR_ITER +1 ;
   if(NR_ITER == 500)
     break;
