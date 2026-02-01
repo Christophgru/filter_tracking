@@ -10,7 +10,7 @@ DIMZ = 3;
 
 
 % the number of targets
-NR_TARGETS = 3;
+NR_TARGETS = 4;
 
 %history size: the number of measurements, estimations,... to store for
 %visualization
@@ -52,13 +52,13 @@ qw = (2/T)^2;
 
 
 
-COLORS{1} = 'r';
-COLORS{2} = 'cyan';
-COLORS{3} = 'magenta';
 
-x_start{1} = [20,10,0,0,0,0]';
-x_start{2} = [-10,10,0,0,0,0]';
-x_start{3} = [-10,30,0,0,0,0]';
+
+ax_lim = [-60 40 0 100];   % same as you use for plotting
+minDist = 20;              % choose "sufficient distance" in meters (tune as needed)
+
+[x_start, COLORS] = generateRandomStarts(NR_TARGETS, ax_lim, minDist);
+
 
 
 for i=1:NR_TARGETS
@@ -147,15 +147,19 @@ while (1)
     if(i>1)
       hold on;
     end
-    col = COLORS{i};
-    plot(x_true{i}(1),x_true{i}(2),[col 's'],'MarkerSize',10);
-    hold on;
-    plot(X_Hist{i}(1,:),X_Hist{i}(2,:),[col '-']);
-    
-    if(i<=nrKF)
-      plot(kf(i).x_est(1),kf(i).x_est(2),[col 'o'],'MarkerSize',8);
-      plot(kf(i).x_est(1),kf(i).x_est(2),[col 'x'],'MarkerSize',8);
-      plot(X_est_Hist{i}(1,:),X_est_Hist{i}(2,:),[col '--']);
+    plot(x_true{i}(1), x_true{i}(2), 's', 'Color', COLORS{i}, 'MarkerSize', 10);
+
+   hold on;
+
+    plot(X_Hist{i}(1,:), X_Hist{i}(2,:), ...
+        '-', 'Color', COLORS{i});
+    if i <= nrKF
+        plot(kf(i).x_est(1), kf(i).x_est(2), ...
+            'o', 'Color', COLORS{i}, 'MarkerSize', 8);
+        plot(kf(i).x_est(1), kf(i).x_est(2), ...
+            'x', 'Color', COLORS{i}, 'MarkerSize', 8);
+        plot(X_est_Hist{i}(1,:), X_est_Hist{i}(2,:), ...
+            '--', 'Color', COLORS{i});
     end
   end
   
@@ -236,4 +240,58 @@ else
   
   Hist = circshift(Hist',1)';
   Hist(:,1) = val;
+end
+
+
+function [x_start, COLORS] = generateRandomStarts(NR_TARGETS, ax_lim, minDist)
+% Generates NR_TARGETS initial states with minimum pairwise XY distance
+% and returns a distinct color for each target.
+%
+% ax_lim = [xmin xmax ymin ymax]
+% minDist = minimum Euclidean distance in XY plane
+
+xmin = ax_lim(1); xmax = ax_lim(2);
+ymin = ax_lim(3); ymax = ax_lim(4);
+
+x_start = cell(1, NR_TARGETS);
+XY = zeros(NR_TARGETS, 2);
+
+maxTriesPerTarget = 5000;
+
+% generate visually distinct colors
+cmap = lines(NR_TARGETS);   % built-in MATLAB colormap
+COLORS = cell(1, NR_TARGETS);
+for i = 1:NR_TARGETS
+    COLORS{i} = cmap(i,:);  % RGB triplet
+end
+
+for k = 1:NR_TARGETS
+    ok = false;
+
+    for tries = 1:maxTriesPerTarget
+        x = xmin + (xmax - xmin) * rand();
+        y = ymin + (ymax - ymin) * rand();
+
+        if k == 1
+            ok = true;
+        else
+            d = sqrt(sum((XY(1:k-1,:) - [x y]).^2, 2));
+            ok = all(d >= minDist);
+        end
+
+        if ok
+            XY(k,:) = [x y];
+
+            psi = -pi + 2*pi*rand();
+            v   = 0;
+            w   = 0;
+
+            x_start{k} = [x; y; psi; v; w];
+            break;
+        end
+    end
+
+    if ~ok
+        error('Could not place target %d with minDist=%.2f.', k, minDist);
+    end
 end

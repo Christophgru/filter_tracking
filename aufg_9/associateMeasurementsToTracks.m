@@ -41,7 +41,7 @@ switch algorithm
         % set of unassigned measurements
         unassigned = true(nMeas,1);
 
-        maxIter = 10000; % safety
+        maxIter = 100; % safety
         iter = 0;
 
         while any(unassigned)
