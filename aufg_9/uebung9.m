@@ -119,7 +119,7 @@ while (1)
     end
     
     % data association
-    A = associateMeasurementsToTracks(Z, R, H, kf,'neighbor');
+    A = associateMeasurementsToTracks(Z, R, H, kf,'auction');
     
     %innovation efk
     for i=1:NR_TARGETS
